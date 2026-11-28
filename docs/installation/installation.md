@@ -204,7 +204,7 @@ Do not copy only the database or registry. Existing legacy games/players remain
 administrator-only, with no invented account ownership. Schema 8 is additive and
 transactional; newer unsupported schemas are refused. Schema 9 adds account
 verification/token/mail/limiter state without reassigning owners; run the
-[read-only collision preflight and review rollback constraints](../administration/user-management.md#migration-and-rollback-boundary)
+[read-only collision preflight and review rollback constraints](../administration/user-management.md#migration-and-rollback)
 before a separately authorized upgrade. No production migration is implied by
 development validation.
 
@@ -264,11 +264,11 @@ Schema 13 includes configurable online clocks alongside the
 snapshots without reinterpreting local histories.
 Admission defaults off; timeout losses default on and explicit operator pauses
 remain available. Review the
-[schema-13 recovery boundary](../administration/online-operations.md#migration-backup-and-recovery) before an
+[schema-13 recovery boundary](../administration/online-operations.md#recovery) before an
 upgrade or rollback, and pause the timeout gate before maintenance.
 
 Registration remains off unless explicitly enabled with valid mail configuration.
-See [SMTP setup and account operations](../administration/user-management.md#enable-and-configure-mail).
+See [SMTP setup and account operations](../administration/user-management.md#enable-registration-and-mail).
 
 ## Private GitHub authentication
 
@@ -335,7 +335,7 @@ Server and workers must run the same exact application release. During an ordina
 server restart, valid remote leases continue across version changes, but outdated
 workers cannot claim additional work until updated or given an explicit per-worker
 administrator override. No re-enrollment is needed. Keep restart downtime within
-the lease timeout. See [compatibility and worker updates](../training/remote-workers.md#application-compatibility-and-upgrades).
+the lease timeout. See [compatibility and worker updates](../training/remote-workers.md#compatibility-and-capabilities).
 The production updater's activity preflight remains unchanged:
 stop/cancel local/remote jobs and tournaments and pause remote claim loops before
 updates. Resume from retained checkpoints explicitly afterward; updates never
@@ -344,7 +344,9 @@ host/device/runtime plan; CPU-only installation does not configure passthrough.
 
 ## Browser-local analysis distribution (optional)
 
-Browser-local analysis ships **disabled** and has no player-facing UI. Enabling it
+Browser-local analysis ships **disabled**. When enabled, the existing analysis UI may
+execute locally under the deployment policy; there is no separate browser-analysis
+page or player provider selector. Enabling it
 requires an explicitly staged, pinned runtime and explicitly published models; an
 installation without either continues to start and serve every ordinary page.
 

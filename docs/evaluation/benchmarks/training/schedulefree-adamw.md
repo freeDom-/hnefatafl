@@ -1,6 +1,6 @@
 # Schedule-Free AdamW CPU measurements
 
-[Training guide](../../../training/getting-started.md#schedule-free-adamw) · [Raw measurements](../raw/training/schedulefree-adamw.json)
+[Training guide](../../../training/algorithms.md#optimizers-and-precision) · [Raw measurements](../raw/training/schedulefree-adamw.json)
 
 Measured 2026-11-09 on Linux x86_64, AMD EPYC 9V74, Python 3.12.14,
 PyTorch 2.14.1+cpu, schedulefree 1.4.1; two PyTorch/OMP/MKL threads.

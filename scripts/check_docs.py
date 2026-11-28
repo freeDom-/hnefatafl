@@ -31,6 +31,7 @@ MALFORMED = re.compile(
     r"(?<!\\)!?\[[^\]\n]{1,300}\([^)\s]*(?:/[^)\s]*|\.[A-Za-z0-9]{1,8})(?:[?#][^)\s]*)?\)(?!\])"
 )
 INLINE_CODE = re.compile(r"`[^`\n]*`")
+PLAYER_API_TABLE = re.compile(r"\|\s*(?:GET|POST|PUT|PATCH|DELETE)\s*\|\s*/api/")
 
 
 def mask_inline_code(text: str) -> str:
@@ -173,6 +174,12 @@ def main() -> int:
             errors.append(
                 f"{path.relative_to(ROOT)}:{line}: malformed Markdown link {target!r} "
                 "(missing ']' before '(')"
+            )
+        relative = path.relative_to(ROOT)
+        if relative.parts[:2] == ("docs", "game") and PLAYER_API_TABLE.search(text):
+            errors.append(
+                f"{relative}: API endpoint table in player documentation; "
+                "move it to docs/development/api/"
             )
     reached, pending = set(), [ROOT / "docs/README.md"]
     while pending:

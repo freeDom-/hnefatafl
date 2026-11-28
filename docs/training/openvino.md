@@ -137,62 +137,9 @@ while preserving network identity, optimizer buffers, replay, RNG and history.
 When switching to PyTorch select inference device `auto`. The CLI also supports
 an explicit new backend in resume JSON. Old checkpoints default to PyTorch.
 
-## Full-training benchmark
+## Complete-iteration benchmark
 
-The existing `benchmark` command measures self-play only. Use the new command
-for complete iterations, including optimization, evaluation and model refresh:
-
-```sh
-.venv/bin/hnefatafl benchmark-training --config work/intel-benchmark.json \
-  --output work/intel-benchmark-results.json
-```
-
-Example `work/intel-benchmark.json`:
-
-```json
-{
-  "training": {
-    "preset": "recommended",
-    "ruleset": "tablut",
-    "channels": 48,
-    "blocks": 3,
-    "games": 32,
-    "self_play_concurrency": 32,
-    "inference_batch_size": 32,
-    "cpu_threads": 4,
-    "seed": 17,
-    "mcts_time_limit": 300
-  },
-  "repetitions": 3,
-  "warmup_iterations": 1,
-  "measured_iterations": 3,
-  "inference_device": "GPU"
-}
-```
-
-Run Tablut with both 24 and 32 games/concurrency. Also test Brandubh 32 channels /
-2 blocks as a regression baseline, and Copenhagen 64 / 4 with 32 games/concurrency.
-Retain identical budgets within each comparison. These recommended-budget runs can
-be long. Use the smoke preset and small ply limits first to validate the setup.
-
-Each backend/repetition starts in a fresh subprocess with identical seeded initial
-weights and config. Backend order alternates. Warm-up iterations are recorded but
-excluded from averages. Both use FP32, CPU optimization and batched self-play.
-Reports include software/hardware, all per-iteration phase timings, conversion,
-compilation/warm-up, refresh, actual batch distribution, completed/requested
-simulations, cutoffs, throughput, games/hour and process peak RSS where supported.
-Iteration wall includes checkpoint persistence; compute time excludes persistence.
-Process wall additionally includes startup, warm-up iterations and final registration.
-`games_per_hour` retains self-play phase semantics; `iteration_games_per_hour`
-uses complete iteration wall time, including persistence. Both count generated
-self-play games; the separate completed/drawn/truncated counters distinguish rule
-results from ply-budget truncations. Memory is process high-water RSS, not measured GPU memory. Missing GPU scenarios
-are explicitly skipped. Retained run directories contain inputs, logs, checkpoints
-and the full JSON report; no model is published to the server.
-
-Compare complete work as well as wall time: numerical differences can change
-trajectories, and deadlines can change completed simulations. Never treat faster
-forward passes as measured full-training acceleration.
+See the [evaluation report](../evaluation/benchmarks/inference/openvino.md#complete-iteration-benchmark) for the full-training benchmark procedure, workload comparisons and CPU diagnostic.
 
 ## Monitoring and limitations
 
@@ -219,16 +166,4 @@ its valid checkpoint with a working backend. Cancellation is checked around refr
 and between searches/optimizer updates; a native conversion/compile call cannot be
 interrupted cooperatively, but the existing supervisor can terminate its process.
 
-### Diagnostic CPU result on the release host
-
-The [newly executed CPU-only report](../evaluation/benchmarks/raw/inference/openvino-cpu-diagnostic-2026-10-23.json)
-compares Brandubh 32/2 on Python 3.14.4, three repetitions, one warm-up and three
-measured iterations per repetition. Eight concurrent games were deliberately
-limited to two plies; actual average inference batch size was 8. Both backends
-completed 288/288 requested MCTS simulations across measured iterations, with
-zero deadline cutoffs. This is a functional smoke workload, not full-length games.
-
-Mean complete iteration wall time was **0.1630 s for PyTorch CPU** and
-**2.0463 s for OpenVINO CPU** (0.0797× speedup, therefore slower). Conversion and
-compilation dominate such tiny iterations. This diagnostic is not an Intel GPU
-comparison and predicts no GPU training speedup or general CPU ranking.
+See the [OpenVINO evaluation report](../evaluation/benchmarks/inference/openvino.md#diagnostic-cpu-result-on-the-release-host) for the diagnostic CPU measurement and interpretation.

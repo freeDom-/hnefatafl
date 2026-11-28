@@ -16,7 +16,7 @@ checks an operator needs after deployment.
 The backend owns permissions. Administrators can manage accounts and the
 training workshop; ordinary accounts can play, review their own records and earn
 progression. Hiding a navigation item is presentation only; every route checks
-the account again. See [security](security.md#central-permissions-and-object-ownership).
+the account again. See [security](../development/security.md#permissions-and-ownership).
 
 ## Required operator actions
 

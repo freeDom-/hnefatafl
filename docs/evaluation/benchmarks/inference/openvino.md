@@ -76,7 +76,7 @@ separate refresh, self-play, optimization, evaluation and artifact timings;
 startup and all warm-up iterations additionally appear in process wall time.
 Its report includes actual batch distributions, completed/requested simulations,
 deadline cutoffs, throughput and process peak RSS. See the
-[benchmark instructions](../../../training/openvino.md#full-training-benchmark).
+[benchmark instructions](../../../evaluation/benchmarks/inference/openvino.md#complete-iteration-benchmark).
 
 Only a diagnostic CPU-plugin comparison can run here. It establishes neither Intel
 GPU performance nor a universal CPU advantage. No new GPU end-to-end speedup is
@@ -90,3 +90,74 @@ batches averaged 8; each backend completed 288/288 measured simulations with no
 deadline cutoffs. Mean full-iteration wall: PyTorch CPU 0.1630 s, OpenVINO CPU
 2.0463 s, a 0.0797× ratio. This is an overhead-dominated CPU diagnostic, not a GPU
 benchmark or full-length-game performance claim. No test suite ran concurrently.
+
+## Complete-iteration benchmark
+
+The existing `benchmark` command measures self-play only. Use the new command
+for complete iterations, including optimization, evaluation and model refresh:
+
+```sh
+.venv/bin/hnefatafl benchmark-training --config work/intel-benchmark.json \
+  --output work/intel-benchmark-results.json
+```
+
+Example `work/intel-benchmark.json`:
+
+```json
+{
+  "training": {
+    "preset": "recommended",
+    "ruleset": "tablut",
+    "channels": 48,
+    "blocks": 3,
+    "games": 32,
+    "self_play_concurrency": 32,
+    "inference_batch_size": 32,
+    "cpu_threads": 4,
+    "seed": 17,
+    "mcts_time_limit": 300
+  },
+  "repetitions": 3,
+  "warmup_iterations": 1,
+  "measured_iterations": 3,
+  "inference_device": "GPU"
+}
+```
+
+Run Tablut with both 24 and 32 games/concurrency. Also test Brandubh 32 channels /
+2 blocks as a regression baseline, and Copenhagen 64 / 4 with 32 games/concurrency.
+Retain identical budgets within each comparison. These recommended-budget runs can
+be long. Use the smoke preset and small ply limits first to validate the setup.
+
+Each backend/repetition starts in a fresh subprocess with identical seeded initial
+weights and config. Backend order alternates. Warm-up iterations are recorded but
+excluded from averages. Both use FP32, CPU optimization and batched self-play.
+Reports include software/hardware, all per-iteration phase timings, conversion,
+compilation/warm-up, refresh, actual batch distribution, completed/requested
+simulations, cutoffs, throughput, games/hour and process peak RSS where supported.
+Iteration wall includes checkpoint persistence; compute time excludes persistence.
+Process wall additionally includes startup, warm-up iterations and final registration.
+`games_per_hour` retains self-play phase semantics; `iteration_games_per_hour`
+uses complete iteration wall time, including persistence. Both count generated
+self-play games; the separate completed/drawn/truncated counters distinguish rule
+results from ply-budget truncations. Memory is process high-water RSS, not measured GPU memory. Missing GPU scenarios
+are explicitly skipped. Retained run directories contain inputs, logs, checkpoints
+and the full JSON report; no model is published to the server.
+
+Compare complete work as well as wall time: numerical differences can change
+trajectories, and deadlines can change completed simulations. Never treat faster
+forward passes as measured full-training acceleration.
+
+## Diagnostic CPU result on the release host
+
+The [newly executed CPU-only report](../raw/inference/openvino-cpu-diagnostic-2026-10-23.json)
+compares Brandubh 32/2 on Python 3.14.4, three repetitions, one warm-up and three
+measured iterations per repetition. Eight concurrent games were deliberately
+limited to two plies; actual average inference batch size was 8. Both backends
+completed 288/288 requested MCTS simulations across measured iterations, with
+zero deadline cutoffs. This is a functional smoke workload, not full-length games.
+
+Mean complete iteration wall time was **0.1630 s for PyTorch CPU** and
+**2.0463 s for OpenVINO CPU** (0.0797× speedup, therefore slower). Conversion and
+compilation dominate such tiny iterations. This diagnostic is not an Intel GPU
+comparison and predicts no GPU training speedup or general CPU ranking.

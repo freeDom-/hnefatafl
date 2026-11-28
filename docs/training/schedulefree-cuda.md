@@ -1,6 +1,6 @@
 # Schedule-Free AdamW: RTX 3060 validation procedure
 
-[Training](./getting-started.md#schedule-free-adamw) · [CUDA setup](./performance.md#separate-cuda-environment)
+[Training](./algorithms.md#optimizers-and-precision) · [CUDA setup](./performance.md#choose-hardware)
 
 This is a reproducible hardware acceptance procedure, not measured RTX 3060
 results. The PR implementation environment has CPU PyTorch and no operational

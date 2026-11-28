@@ -43,7 +43,7 @@ Learning rates are 0.001, 0.0007 and 0.0005; epochs per iteration are 2, 3 and 3
 Larger replay buffers mix older and newer positions rather than repeatedly fitting
 one short game. Opening temperature and Dirichlet noise diversify self-play, with
 noise alpha 0.3, 0.2 and 0.15 as the branching space grows. These plans inherit the
-[random D4 symmetry augmentation](./getting-started.md#training-symmetry-augmentation)
+[random D4 symmetry augmentation](./algorithms.md#symmetry)
 default for new jobs, so every minibatch example is transformed; set the mode to
 **Disabled** to reproduce the earlier unaugmented plan. They add no hand-labelled
 tactical curriculum.
@@ -55,7 +55,7 @@ curves, then vary one capacity/search/learning-rate choice or use Optuna. Keep
 evaluation opponents, move budgets, hardware, seeds and side balance comparable.
 Choose one evaluation opponent per training job, then confirm promising models
 in separate larger tournaments with held-out seeds. See
-[evaluation selection](./getting-started.md#evaluation-and-model-selection). A lower loss only
+[evaluation selection](./evaluation.md). A lower loss only
 means a better fit to current self-play targets; a high small-sample win fraction
 is not reliable evidence of general strength. Persistent truncation calls for a
 longer game/evaluation budget and investigation before interpreting a score.

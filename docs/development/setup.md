@@ -75,15 +75,15 @@ configuration paths.
 
 | Command | Interface and guide |
 | --- | --- |
-| `devices` | Report actual PyTorch and optional OpenVINO availability; [hardware](../training/performance.md#installation-and-hardware) |
+| `devices` | Report actual PyTorch and optional OpenVINO availability; [hardware](../training/performance.md#choose-hardware) |
 | `train --config FILE [--resume FILE]` | JSON training config; safe full checkpoint resume; [training](../training/getting-started.md) |
-| `tune --config FILE` | Local Optuna study/trials; [optimization](../training/getting-started.md#hyperparameter-optimization) |
+| `tune --config FILE` | Local Optuna study/trials; [optimization](../training/tuning.md#tuning-workflow) |
 | `tournament --config FILE` | JSON round-robin or fixed-role comparison, final report to stdout; [tournaments](../evaluation/ai-tournaments.md) |
 | `benchmark-heuristics [--config FILE] [--output FILE]` | CPU heuristic strength, latency and complete-evaluation comparisons; [evidence](../evaluation/shield-maiden.md) |
-| `benchmark-alpha-beta [--config FILE] [--output FILE] [--summary-output FILE]` | Fixed-depth correctness, independent minimax oracle, fixed-time depth and alpha-beta optimization ablations; `--summary-output` writes the compact evidence with the run's source hashes; [evidence](../training/performance.md#alpha-beta-profiling-and-root-window-pruning) |
-| `benchmark-training --config FILE [--output FILE]` | Complete CPU/OpenVINO training iterations with repeated seeded runs; [OpenVINO](../training/openvino.md#full-training-benchmark) |
-| `benchmark [--config FILE] [--output FILE]` | Fixed-model self-play, optional checkpoint/device/mode selection, no optimizer/model registration; [benchmark protocol](../training/performance.md#benchmark-protocol-and-evidence) |
-| `models [--registry DIR]` | List; optional `--import FILE --name NAME` or `--export ID --output FILE`; [models](../training/models.md#checkpoints-registry-import-and-export) |
+| `benchmark-alpha-beta [--config FILE] [--output FILE] [--summary-output FILE]` | Fixed-depth correctness, independent minimax oracle, fixed-time depth and alpha-beta optimization ablations; `--summary-output` writes the compact evidence with the run's source hashes; [evidence](../training/../evaluation/benchmarks/search-alpha-beta.md#alpha-beta-profiling-and-comparison-2026-10-26) |
+| `benchmark-training --config FILE [--output FILE]` | Complete CPU/OpenVINO training iterations with repeated seeded runs; [OpenVINO](../evaluation/benchmarks/inference/openvino.md#complete-iteration-benchmark) |
+| `benchmark [--config FILE] [--output FILE]` | Fixed-model self-play, optional checkpoint/device/mode selection, no optimizer/model registration; [benchmark protocol](../training/../evaluation/methodology.md) |
+| `models [--registry DIR]` | List; optional `--import FILE --name NAME` or `--export ID --output FILE`; [models](../training/models.md#checkpoint-types) |
 | `worker --server URL [--work-dir DIR] [--concurrency N] [--once] [--max-jobs N]` | Token from `HNEFATAFL_WORKER_TOKEN`, concurrency 1–16; [workers](../training/remote-workers.md) |
 
 Runnable budgets live in [configs](../../configs): smoke training, beginner training,

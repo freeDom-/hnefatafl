@@ -37,12 +37,12 @@ release candidate. Do not read a merged PR's green matrix as release acceptance.
   with green PR checks and disposable workload evidence; combined release-candidate
   verification of queueing, settlement, recovery and administration is still
   outstanding. See [League validation](../evaluation/league-arena.md).
-- [ ] Production browser analysis has no execution-mode integration. Decide
-  explicitly whether a full-strength Jarl executor ships in the initial release or
-  is deferred; any shipped executor needs integration and regression acceptance.
-  Neural MCTS is implemented only as an isolated, opt-in spike (Phases 2–3C-B) with
-  no production route, and competitive checkpoints, physical devices and verified
-  GPU execution remain blocked external gates.
+- [ ] Browser analysis Phase 5 transparent integration is implemented behind the
+  deployment policy, but production acceptance is not complete. Offline readiness,
+  competitive checkpoints, physical devices, verified GPU execution, sustained
+  memory and distribution licensing remain open. See the
+  [active roadmap](../development/roadmap/browser-analysis.md) before treating it as
+  a shipped production executor.
 - [ ] Combined performance on the actual release candidate: route/page latency,
   request traces, 1/10/50-client p50/p95, mixed writes, bounded concurrent
   analysis, league workloads, realistic data volumes and production capacity.

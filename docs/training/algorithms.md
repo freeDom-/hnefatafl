@@ -155,7 +155,7 @@ Optuna runs separate full trials; it is not the online controller. Each trial
 trains its own model from the same source checkpoint when configured, samples only
 tunable training fields, and stores results in the job's own study database. Study
 identity, continuation, weighted multi-opponent objectives and held-out verification
-are documented in [getting started](getting-started.md#hyperparameter-optimization).
+are documented in [getting started](tuning.md#tuning-workflow).
 Best-configuration export is a configuration artifact, not a promoted model.
 
 ## Optional online adaptation
@@ -175,9 +175,10 @@ algorithm or precision mode. See [remote workers](remote-workers.md).
 
 ## Planned and experimental work
 
-- Browser-local neural MCTS is implemented as an opt-in research path, not a
-  production analysis executor. Competitive checkpoints, physical WebGPU, sustained
-  memory and playing-strength gates remain open.
+- Browser-local neural MCTS is implemented as an opt-in, deployment-controlled
+  analysis path (Phase 5 transparent integration), not production-accepted.
+  Competitive checkpoints, physical WebGPU, sustained memory, offline readiness and
+  playing-strength gates remain open.
 - Distributed self-play and PostgreSQL migration tooling are not implemented.
 - Leagues and player tournaments are separate game features, not training
   algorithms.

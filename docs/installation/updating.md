@@ -595,7 +595,7 @@ gate with an audit entry. It does not rewind accepted online play to the snapsho
 online schema/column set refuses automatic root replacement, even when account
 columns match. Snapshot-only recovery without live authority cannot recover newer
 progress, but still revokes saved capabilities and pauses timeouts. See
-[online recovery](../administration/online-operations.md#migration-backup-and-recovery) before resuming.
+[online recovery](../administration/online-operations.md#recovery) before resuming.
 
 Data created after the snapshot is kept in a sibling
 `/var/lib/hnefatafl.retained-<id>` directory for inspection and manual reconciliation.

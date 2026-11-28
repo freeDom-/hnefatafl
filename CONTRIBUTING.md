@@ -54,10 +54,12 @@ legal review before any activation.
   any new dependency or asset.
 - A description of any ownership, provenance or licensing question that cannot
   be resolved from the repository.
-- Documentation updates for changed behavior. Keep complete implementation
-  roadmaps for features still under development; remove a roadmap only after the
-  whole feature is fully developed and accepted. See the
-  [documentation guidelines](docs/development/documentation-guidelines.md).
+- Documentation updates for changed behavior, using the audience boundaries in the
+  [documentation guidelines](docs/development/documentation-guidelines.md): player
+  pages stay player-facing, API contracts live in `docs/development/api/`, and
+  benchmarks in `docs/evaluation/`. Keep complete roadmaps while a feature is under
+  development; remove one only after the whole feature is fully developed and
+  accepted.
 
 ## Commercial use
 

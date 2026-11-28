@@ -8,13 +8,16 @@
 | Mandatory UI reuse, responsiveness, accessibility and terminology | [UI guidelines](ui-guidelines.md) |
 | Branch, pull-request and online-milestone workflow | [Contributor workflow](contributor-workflow.md) |
 | Focused tests, full checks and browser suites | [Testing](testing.md) |
-| Routes, permissions, optimistic versions and extension boundaries | [API](api.md) |
+| Canonical API reference, permissions, versions and extension boundaries | [API](api/README.md) |
 | Documentation lifecycle, screenshots and validation | [Documentation guidelines](documentation-guidelines.md) |
 | Important architecture decisions | [Decision records](decisions/README.md) |
 | Remaining work | [Roadmaps](roadmap/README.md) |
-| Current dependency risk acceptance | [Security advisory](security-advisory.md) |
+| Historical dependency advisory record | [Security advisory](security-advisory.md) |
 | Deferred CLA proposal | [Contributor licensing](contributor-licensing.md) |
-| League and player-tournament internal authority | [League authority](league-authority.md), [tournament authority](tournament-authority.md) |
+| Game/online/rating authority | [Game authority](game-authority.md), [online authority](online-authority.md), [rating authority](rating-authority.md) |
+| League and player-tournament authority | [League authority](league-authority.md), [tournament authority](tournament-authority.md) |
+| Accounts, analysis, training data and workers | [Accounts](accounts.md), [Analysis](analysis.md), [Training data](training-data.md), [Worker protocol](worker-protocol.md) |
+| AI Testing and browser analysis | [AI Testing](ai-testing.md), [Browser analysis](browser-analysis.md) |
 | Training monitoring publication and polling internals | [Training monitoring](training-monitoring.md) |
 | Historical Arena implementation snapshot | [Arena completeness 2026-11-20](../releases/arena-snapshot-2026-11-20.md) |
 

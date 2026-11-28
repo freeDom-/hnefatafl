@@ -17,36 +17,18 @@
 | AI-only round-robin comparisons | [AI tournaments](../evaluation/ai-tournaments.md) |
 | Current UI page guide and screenshots | [Interface](interface/README.md) |
 
-## Rulesets
+## At a glance
 
-The three rulesets are not interchangeable. Brandubh is 7×7 with a corner escape;
-Tablut market rules are 9×9 with any-edge escape and no special squares;
-Copenhagen is 11×11 with four-sided royal capture, edge immunity, shieldwalls,
-encirclement and exit forts. Authoritative source citations and digital
-conventions live beside the runtime assets:
+| Mode | Rated? | Record |
+| --- | --- | --- |
+| Play vs AI | No | Singleplayer |
+| Local 1v1 | No | Local 1v1 |
+| Normal online game | Yes | Online multiplayer + Elo |
+| League game | Yes | League season + online record |
+| Player-tournament leg | No | Tournament bracket + online record |
+| Public Watch Hall | n/a | Public eligible online games only |
 
-- [Brandubh](../rules/brandubh.md)
-- [Tablut](../rules/tablut.md)
-- [Copenhagen](../rules/copenhagen.md)
-
-Those Markdown files are read by the server for the in-game rules panel and must
-not be moved.
-
-## Game modes
-
-| Mode | Opponent | Rated | History |
-| --- | --- | --- | --- |
-| Play vs AI | Fixed preset or administrator-defined custom agent | No | Account single-player |
-| Local 1v1 | Two humans on one device | No | Owner-scoped Local 1v1 category |
-| Online | Another verified account | Yes, every new game | Online records and Elo |
-| Public Watch Hall | None (signed-out read-only) | n/a | Public eligible online games only |
-
-AI-only tournaments are an evaluation tool, not a player mode; see
-[AI tournaments](../evaluation/ai-tournaments.md).
-
-## Time controls
-
-Online games use per-move or total-time controls with optional increments only
-for total time. The aggregate limit is 60 seconds to 14 days; invalid combinations
-are rejected, not clamped. Official games freeze their settings at creation.
-Single-player and local 1v1 do not use rated clocks.
+Ruleset mechanics and time controls are documented in [Gameplay](gameplay.md);
+their source-defined interpretations are in the runtime rule files:
+[Brandubh](../rules/brandubh.md), [Tablut](../rules/tablut.md) and
+[Copenhagen](../rules/copenhagen.md).

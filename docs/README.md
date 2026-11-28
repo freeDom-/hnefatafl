@@ -27,6 +27,9 @@ under `docs/rules/` because the server reads them at runtime.
 
 - Each topic has one canonical page. Link to it instead of copying commands,
   defaults or parameter tables.
+- Follow the [audience boundaries](development/documentation-guidelines.md#audience-boundaries):
+  player docs stay player-facing; API/persistence internals live in Development;
+  benchmark evidence lives in Evaluation.
 - Current guides describe implemented behavior; [release notes](releases/README.md)
   preserve the evidence, counts and limitations of their own release.
 - Distinguish implemented, experimental, deferred and planned work. Do not present

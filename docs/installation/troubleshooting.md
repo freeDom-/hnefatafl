@@ -114,4 +114,4 @@ deploy the updated backend and client together. A stopped-writer backup must
 precede upgrade. Automatic restore requires matching account columns/schema 15
 and keeps current live dates and publication state. Older schema-14 snapshots
 need manual reconciliation or migration of a disposable copy before use; the
-automatic restore path safely refuses the mismatch. See [profile migration](../game/profile.md#api-and-persistence).
+automatic restore path safely refuses the mismatch. See [profile migration](../development/accounts.md).

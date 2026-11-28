@@ -106,7 +106,7 @@ neural evaluator raises instead of merging unequal predictions. Neural alpha-bet
 still uses the ordinary orientation-specific table and move ordering. Symmetry
 features are optional rather than defaults because canonicalizing long histories
 costs more than it saves on some rulesets; see the
-[benchmark evidence](../training/performance.md#phase-4-alpha-beta-symmetry-search).
+[benchmark evidence](../training/../evaluation/benchmarks/search-alpha-beta.md#phase-4-evidence-alpha-beta-symmetry-search).
 
 Symmetry move pruning runs before successors are built: the full-state stabilizer
 partitions the legal moves into orbits, one deterministic representative per orbit
@@ -339,7 +339,7 @@ See [Tournaments](./ai-tournaments.md) for browser and CLI round robins, balance
 assignments, budgets, scoring and legal replay. Wins score one; rules draws half;
 unfinished move-cap games score zero and remain separate from draws/losses.
 CLI reports go to stdout; browser reports form a persisted, separate collection.
-Use [model import/export](../training/models.md#checkpoints-registry-import-and-export)
+Use [model import/export](../training/models.md#checkpoint-types)
 for compatible trained opponents.
 
 ## Recorded configurations

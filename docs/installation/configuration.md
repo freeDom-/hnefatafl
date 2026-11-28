@@ -67,9 +67,13 @@ for its disposable fake mailbox; production defaults are unchanged. See
 | `HNEFATAFL_ONLINE_WAITING_LIMIT` | `5` | Waiting games per account |
 | `HNEFATAFL_ONLINE_CREATION_LIMIT` | `10` | Rolling creation budget |
 | `HNEFATAFL_ONLINE_CREATION_WINDOW_SECONDS` | `900` | Rolling creation window |
-| `HNEFATAFL_PUBLIC_ONLINE_ENABLED` | unset (disabled) | Signed-out public discovery; `false` returns 404 for `/api/public/online/*` |
+| `HNEFATAFL_PUBLIC_ONLINE_ENABLED` | `true` (enabled) | Signed-out public discovery; set `false` to return 404 for `/api/public/online/*` |
 | `HNEFATAFL_PUBLIC_RATE_LIMIT` | `60` | Public requests per window |
 | `HNEFATAFL_PUBLIC_RATE_WINDOW_SECONDS` | `60` | Public rate-limit window |
+
+Public discovery is enabled by default on the shipped configuration. Set
+`HNEFATAFL_PUBLIC_ONLINE_ENABLED=false` to disable the whole public namespace; the
+Watch Hall then returns not found. Authenticated online play is unaffected.
 
 A two-game match counts as one creation. Cancelling a waiting game does not refund
 the rolling creation budget. See

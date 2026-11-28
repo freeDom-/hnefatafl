@@ -114,7 +114,7 @@ Tuning adds `trials`, `study_name`, `seed`, `search_space`, `resume_study`,
 `source_checkpoint`, `opponents`, `verification`, `sampler`, `pruner` and
 `max_failures`. Each trial trains a full model; only tunable training parameters
 may appear in the search space. Evaluation/champion fields cannot be tuned. See
-[getting started](getting-started.md#hyperparameter-optimization).
+[getting started](tuning.md#tuning-workflow).
 
 ## Resume compatibility
 
@@ -130,7 +130,7 @@ discarded in favour of the previous valid checkpoint.
 
 Changing an inference backend, cache or execution mode affects throughput, not
 the learned algorithm. Keep the same budget and side assignment when comparing
-throughput or strength. See [performance](performance.md#benchmark-protocol-and-evidence).
+throughput or strength. See [performance](../evaluation/methodology.md).
 
 ## Validation notes
 

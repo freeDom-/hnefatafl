@@ -7,12 +7,12 @@ planned UI; it does not implement features. Hall of Renown and portrait selectio
 (PR #86) reuse the contracts below through the authenticated `/portraits` route;
 the signed-out spectator surfaces ship in PR #87 and the human tournament UI in
 PR #90. PR #99 implements the [League contract](../game/leagues.md). Consult the
-[current completeness matrix](./roadmap/arena.md) for current status
+[current completeness matrix](../development/roadmap/arena.md) for current status
 rather than treating this frozen contract as a feature list.
 
-See the [current completeness matrix and roadmap](./roadmap/arena.md),
-the [historical post-PR #84 audit](./roadmap/arena.md),
-[current architecture](./architecture.md), [design system](./frontend.md)
+See the [current completeness matrix and roadmap](../development/roadmap/arena.md),
+the [historical post-PR #84 audit](../development/roadmap/arena.md),
+[current architecture](../development/architecture.md), [design system](../development/frontend.md)
 and [original contract](https://github.com/freeDom-/hnefatafl/blob/c8b99c6fcaf6775e924e6f4eda65328a02f87f3b/docs/designs/arena-v2-contracts.md).
 The original contract remains historical evidence, not the current feature list.
 
@@ -82,14 +82,14 @@ Use existing components, semantic variables, asset allowlists and four-theme
 frames. Text and controls stay HTML. Maintain keyboard focus, reduced motion,
 contrast, English/German labels, square playable boards and the persistent
 desktop sidebar during gameplay/replay. Reference screenshots are in
-[the acceptance record](./frontend.md).
+[the acceptance record](../development/frontend.md).
 
 ## Schema and data ownership
 
 The audited baseline used schema **18**: 16 introduced account-game categories,
 17 progression and 18 human tournaments. Subsequent PR #90 uses schema 19 for
 the settlement outbox and schema 20 for scheduled starts, clocks and match modes;
-see [player tournament migrations](tournament-authority.md#schema). Main uses
+see [player tournament migrations](../development/tournament-authority.md#schema). Main uses
 schema 22 for synchronized tournament rounds and PR #99 introduces the league
 tables at schema 23.
 One owner controls migrations and restore table inventories. Do not allocate

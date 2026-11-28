@@ -21,6 +21,44 @@ when the affected current guide is stale, missing or contradicts the code.
 One topic has one canonical page. Link to it; do not copy commands, defaults,
 parameter tables, game rules or architecture descriptions into a second page.
 
+## Audience boundaries
+
+| Section | Audience | Allowed content | Move elsewhere |
+| --- | --- | --- | --- |
+| `docs/game/` | Players | Rules, modes, UI labels/screenshots, visible settings/behavior, scoring/rating/achievement policies, privacy guarantees, player-facing limitations | API endpoints, schemas, migrations, transactions, polling/caching, frontend/backend implementation |
+| `docs/training/` | Training operators/researchers | Workshop workflows/screenshots, algorithms/math, parameters, evaluation interpretation, plans, hardware/performance tuning, model/worker operation, troubleshooting, CLI examples | Detailed API contracts, persistence formats, worker protocol, internal concurrency/invariants (link developer docs); raw benchmark reports (evaluation) |
+| `docs/installation/` | Server operators | Install/deploy/configure/proxy/update/backup/rollback/troubleshooting runbooks and safety warnings | Installer/updater implementation and deployment-gate internals (development) |
+| `docs/administration/` | Application/server administrators | Accounts, permissions, security configuration, operational controls, monitoring, recovery, incidents, administrative workflows | CSRF/session internals, token/migration algorithms, transaction/locking details, complete API schemas (development) |
+| `docs/evaluation/` | Researchers/developers | Methodology, environments, model identities, configurations, measured results, statistical interpretation, reproduction, limitations, raw evidence, historical comparisons | Primary UI operating instructions; implementation contracts |
+| `docs/development/` | Developers/coding agents | Architecture, source/subsystem responsibilities, canonical API, auth/persistence internals, protocols, state machines, transactions/concurrency, extension instructions, UI rules, tests, decisions, workflows, roadmaps | Player-facing how-to, benchmark narratives |
+| `docs/releases/` | Historical record | Immutable release notes/evidence; tag-pinned historical references | Rewritten current behavior or fresh validation claims |
+
+A route may appear in player docs when it helps access a page, but navigation
+explanations use visible labels. API endpoint tables and request/response contracts
+belong in [the API reference](api/README.md) or a linked subsystem page.
+
+## Canonical API and UI ownership
+
+- Generated `/openapi.json` + [API reference](api/README.md) is the canonical API
+  documentation. `docs/API_PERMISSIONS.json` remains the generated permission
+  inventory.
+- Player pages describe visible behavior; implementation semantics belong in the
+  subsystem reference linked from the API/architecture page.
+- Each UI page has one canonical guide under `docs/game/interface/` (players) or
+  `docs/training/interface.md` (operators). Feature guides explain concepts, not the
+  same page workflow again.
+- Benchmark evidence belongs under `docs/evaluation/`; training performance explains
+  configuration and optimization and links measurements.
+
+## Semantic links and factual accuracy
+
+A link is correct only when its destination covers the same topic and audience. Do
+not point a historical audit at the current roadmap, a player guide at an
+implementation table, or a visual record at itself. Before changing a default,
+supported value, permission, label or command, verify it against source/config/UI.
+If implementation and documentation disagree, correct the documentation and report a
+genuine defect separately. Do not silently expand a docs PR into behavior changes.
+
 ## When implementing a feature
 
 1. Update the canonical current guide, not a new implementation report.
@@ -137,8 +175,9 @@ make docs
 ```
 
 The dependency-free checker validates local links, heading anchors, images and
-reachability from `docs/README.md`. It does not check external URLs, website
-availability or shell-command semantics. For documentation changes, also run
+reachability from `docs/README.md`. It also detects malformed local links and
+rejects API endpoint tables under `docs/game/` (player documentation). It does not
+check external URLs, website availability, prose quality or shell-command semantics. For documentation changes, also run
 `git diff --check` and inspect the rendered diff.
 
 If a document is intentionally not linked from the index, add it to the graph only

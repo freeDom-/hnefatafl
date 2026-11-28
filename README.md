@@ -187,10 +187,12 @@ access. The project makes no tax-deductible charitable-status claim. See the
   browsers and target-host systemd/proxy operation require their own validation.
 - No strong pretrained model ships. A successful smoke training run proves the
   workflow, not playing strength. Displayed winning chances are uncalibrated.
-- Browser-local analysis is an opt-in research feature, not a production analysis
-  executor. See the [roadmap](docs/development/roadmap/browser-analysis.md).
-- Offline play, distributed self-play, PostgreSQL migration tooling and automated
-  league queue matchmaking beyond the released League Arena are not provided.
+- Browser-local analysis is opt-in and deployment-controlled. The transparent
+  Phase 5 integration and policy/fallback exist, but offline readiness, competitive
+  checkpoints, physical-device/GPU acceptance and production acceptance remain open.
+  See the [roadmap](docs/development/roadmap/browser-analysis.md).
+- Offline play, distributed self-play and PostgreSQL migration tooling are not
+  provided.
 
 Historical release evidence is preserved in [release notes](docs/releases/README.md);
 the original specification, including unimplemented goals, is in

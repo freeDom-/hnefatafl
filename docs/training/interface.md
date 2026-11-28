@@ -156,7 +156,9 @@ free slots, versions and leases. Enrollment shows a one-time token; only a hash 
 stored. Revoke a worker to stop new assignments; queued jobs may need explicit
 recovery. **AI testing** (`/tournaments`) is a separate saved collection of AI
 round-robin or fixed-role comparisons, with win matrices, replay and export. It
-never enters player statistics.
+never enters player statistics. See the
+[AI Testing interface](../game/interface/workshop.md#ai-testing) and
+[evaluation methodology](../evaluation/ai-tournaments.md).
 
 ## Analysis views
 
@@ -192,7 +194,7 @@ preview and clears consent; successful deletion refreshes the navigator and
 selection for every removed job. Source jobs, registered models and saved
 game/tournament history remain available. A cleanup-pending notice explains retry
 on the next deletion preview or restart; see
-[recovery details](./models.md#managing-models-and-retained-training-data).
+[recovery details](./models.md#manage-models).
 
 **Rename job** edits the display name only, for active and inactive jobs alike.
 The dialog starts from the current name; saving persists a separate display field
@@ -339,7 +341,7 @@ New workers record sparse, whitelisted parameter snapshots in the portable full
 checkpoint history, at each execution's first completed iteration and whenever
 these settings change. Rows reference their applicable snapshot; resuming keeps
 all earlier events and establishes a new boundary. See the
-[history format](./models.md#historical-training-parameters).
+[history format](./models.md#checkpoint-types).
 
 Legacy rows without reliable provenance remain unknown, including rows appended
 by an older worker. The selected job's current configuration is never projected

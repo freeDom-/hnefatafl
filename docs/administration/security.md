@@ -1,452 +1,97 @@
-# Accounts and API security
+# Security administration
 
-[Documentation index](../../README.md) · [Deployment](../installation/installation.md) · [Endpoint inventory](../API_PERMISSIONS.json)
+[Administration index](README.md) · [Installation](../installation/README.md) · [Security implementation](../development/security.md) · [API](../development/api/README.md)
 
-## Accounts and local administration
+## Production checklist
 
-Accounts have stable random IDs, normalized unique usernames/emails, password
-hashes, roles, enabled status, creation/login timestamps and optional display names.
-The default initial username is **Odin**; email and password are always supplied.
-Passwords require 12–256 characters with four distinct characters and use salted scrypt (N=32768, r=8, p=3,
-32 MiB memory). Python/OpenSSL implements hashing and constant-time comparison.
-There are no default passwords or remote bootstrap endpoints. Public registration
-is configurable and disabled by default; [verification/recovery operations](./user-management.md)
-document SMTP, token, quota, migration and deployment requirements.
+Before exposing the service:
 
-From the OS account owning the data directory (root in production):
+1. Use HTTPS and the production reverse-proxy configuration.
+2. Set `HNEFATAFL_ENV=production`, the exact public URL, allowed hosts and trusted
+   proxies.
+3. Create the initial administrator locally with
+   `python -m hnefatafl.accounts init-admin`. There is no default password.
+4. Keep registration and online admission disabled until configured and tested.
+5. Back up the complete data directory and verify a restore separately.
+6. Configure host monitoring and log retention.
 
-```sh
-.venv/bin/python -m hnefatafl.accounts init-admin --data-dir /absolute/data
-.venv/bin/python -m hnefatafl.accounts create-user --data-dir /absolute/data
-.venv/bin/python -m hnefatafl.accounts reset-password --username Odin --data-dir /absolute/data
-.venv/bin/python -m hnefatafl.accounts set-role --username Raven --role ADMIN --data-dir /absolute/data
-.venv/bin/python -m hnefatafl.accounts disable --username Raven --data-dir /absolute/data
-.venv/bin/python -m hnefatafl.accounts enable --username Raven --data-dir /absolute/data
-```
+Invalid/contradictory production settings fail at startup rather than being
+silently relaxed. See [configuration](../installation/configuration.md) and
+[installation](../installation/installation.md).
 
-Passwords are prompted with echo disabled and confirmation. The CLI refuses a
-terminal that cannot hide password input. Automation may send
-one JSON credentials object through protected stdin with `--credentials-stdin`
-for initial/create operations; never place passwords in argv or shell history.
-Initial provisioning records a transactional one-time database marker. Repeating
-it leaves existing accounts/passwords intact. Explicit local account management
-remains available to the OS operator. The last active administrator cannot be
-disabled or demoted. Role/status administration remains local; authenticated
-self-service profile and password changes are described in [Account profile](../game/profile.md).
+## Accounts and permissions
 
-## Sessions, CSRF and revocation
+Roles/permissions are server-enforced:
 
-Login accepts username or email, returns a safe account projection and CSRF token,
-and sets a random HttpOnly SameSite=Lax cookie. Only SHA-256 hashes of session and
-CSRF tokens are stored in SQLite. The cookie is Secure in production and host-only.
-Passwords/session tokens are never written to browser storage; CSRF stays in memory.
-Identity or effective-permission changes remount protected UI state; logout also
-clears private game/setup preferences.
-Login rechecks the current password hash/status under the session-creation writer
-lock, so an old password checked concurrently with reset cannot grant a new
-session after reset commits. Public login, signup and reset share a durable global
-password-work budget in addition to route/IP/identity protections.
-`GET /api/auth/me` restores the account/CSRF token after a reload. Authentication
-requires no signing key: entropy is generated with Python `secrets`, while the
-protected database is the shared persistent session authority.
-
-Sessions expire after 12 hours, with no sliding renewal. Set
-`HNEFATAFL_SESSION_SECONDS` to 60–604800 seconds to change this. Login creates a new
-session and invalidates the browser's previous session; logout deletes its session.
-Authenticated profile password changes retain the current session, revoke other
-sessions and invalidate pending reset links. Accounts and effective permissions
-are reloaded for every request. Local password,
-role or status changes revoke all browser sessions. Disabled/unknown-role accounts
-cannot log in or use retained sessions. Concurrent requests already authorized may
-finish; revocation applies to subsequent requests. Authentication works across
-restarts/workers; process-owned training/catalog coordination still requires one
-API worker. API worker count is unrelated to training parallelism.
-
-Cookie-authenticated mutations require `X-CSRF-Token`. If supplied, Origin must
-exactly equal the public HTTPS origin (or the request origin during development).
-Login itself requires same-origin Origin and JSON, preventing login CSRF through
-forms. No cross-origin API access is enabled. Login throttling is transactional
-and shared across workers: ten attempts per normalized identity and thirty per
-connecting IP per fifteen minutes, including successful attempts. Failures do
-not disclose account existence. Configure trusted proxies correctly so IP limiting
-uses verified client addresses.
-
-## Central permissions and object ownership
-
-`security_context.py` defines role permissions, and `auth.py` declares every
-method/path grant. The ASGI boundary checks authentication/permissions before body
-parsing, upload handling or endpoint execution. New unclassified routes are denied;
-unknown roles receive no permissions. Request roles, browser account IDs, custom
-headers, query parameters and machine tokens cannot upgrade browser permissions.
-
-| Permission | USER | ADMIN |
+| Capability | Ordinary account | Administrator |
 | --- | --- | --- |
-| play, profile | Yes | Yes |
-| training, tournaments, models management | No | Yes |
-| accounts, all_data | No | Yes (account management is local CLI only) |
+| Play, history, profile, progression | Yes | Yes |
+| Training, models, workers, AI Testing | No | Yes |
+| All accounts/records, online void/rebuild, league recovery | No | Yes |
 
-Double-elimination player tournaments (`/api/player-tournaments/*`) use the same
-model: authenticated accounts may read tournaments; active, verified accounts
-may register and create within persisted active/rolling quotas. The stored creator
-can start their own eligible tournament or reschedule it while registration is
-open. Administrators can reschedule and can override planned start restrictions.
-Cancellation, rebuilding and match overrides require the administrator-only
-`tournaments` permission; the audit trail requires `accounts`. Explicit settlement
-requests from ordinary players are read-only, while server workers consume the
-durable result outbox. Creator rights never grant global administrative permissions. The backend rechecks the permission inside the write transaction, so
-a frontend role check is advisory only.
+Permissions are not inferred from display names or UI visibility. Every registered
+route has an explicit permission; `docs/API_PERMISSIONS.json` is generated from the
+route table and checked by tests. See
+[central permissions](../development/security.md#permissions-and-ownership).
 
-League endpoints under `/api/leagues` require an authenticated `play` session.
-The session determines whose progress, games and queue requests are visible.
-Standings use the safe player identity and selected portrait projections.
-League mutations use the same origin, CSRF, bounded JSON and deployment-gate
-controls as online play. Write transactions check the current session and
-permissions. Matchmaking separately rechecks both accounts' play and verification
-eligibility. It limits new request IDs per account and counts every committed
-pairing toward the daily opponent limit, including voided games.
+## Sessions and request protection
 
-League monitoring, queue moderation and season recovery require the `accounts`
-permission. Administrative reasons remain in the private append-only audit.
-Recovery reads official game provenance and effective online rating results
-before publishing repaired season standings. Result moderation stays within the
-existing online authority. See [the League API and recovery contract](../game/leagues.md)
-and [the endpoint inventory](../API_PERMISSIONS.json).
+- Browser sessions are HttpOnly cookies with a configurable lifetime.
+- Unsafe requests require the session CSRF token and an allowed `Origin`.
+- Logout and permission/account changes invalidate dependent browser state.
+- Worker calls use scoped bearer tokens, not browser sessions.
 
-SQLite queries scope games and local players to the authenticated account. New
-records receive identity from the trusted request context. Mutations first load
-that scoped object; stats/history use the same scoped query. Administrators
-explicitly have global data access. New account game creation binds the human
-seat to the current account and resolves one of four server presets for ordinary
-players. Only a trusted current administrator can create/restart AI vs AI or
-supply a custom opponent configuration; a non-administrator's raw configuration
-is rejected before it is stored, and every configuration is revalidated with the
-tournament rules. Seeds are server-chosen; arbitrary identity and client-supplied
-seeds are rejected in this creation API. Pass-and-play is not accepted through
-`POST /api/games`; it has its own `POST /api/games/local` route with two labelled
-human seats and no AI opponent (see below).
-Identity/session/role are rechecked inside the creation transaction. Historical
-setups remain read/play compatible, with no restart creation bypass. Local-player
-CRUD routes are removed (unknown routes remain default-denied); historical storage
-is retained. Owned deletion, bounded advisors and authorized training/tournaments
-remain available independently. The ordinary model catalog exposes only ID/name/ruleset/rune;
-paths, training summaries, checkpoints, renames/imports/exports/deletion are admin-only.
+Operational symptoms: a `403` on login/POST usually means a mismatched Host/Origin,
+missing CSRF token or an incorrectly configured reverse proxy. Preserve the original
+Host header and forwarded scheme at the proxy. See
+[reverse proxy](../installation/installation.md#reverse-proxy-and-access).
 
-Schema 8 introduced accounts, sessions, login attempts, bootstrap metadata, nullable
-game/player ownership and a future account-participation relation. Existing game
-JSON, players, runes, statistics, jobs, tournaments and checkpoints remain intact.
-Historical NULL-owned records are administrator-only and are never assigned to
-Odin or given invented passwords. Local humans and AI identities are separate
-from login accounts. Future online participation needs explicit enrollment and
-authorization; the reserved relation does not confer access today.
-Schema 9 adds unknown/unverified legacy email state, version/address-bound token
-digests, leased mail intents and limiter state. IDs, ownership and existing sessions
-survive forward migration; safe rollback has an explicit account-schema boundary.
+## Registration and mail
 
-Schema 16 adds a `category` column to the account-game table so same-device local
-1v1 records stay separate from single-player history. Existing rows default to
-`account-single-player`, so historical records are never rewritten. Local games
-live in the same table and reuse the same engine, optimistic version guard and
-restart path, but carry `category='local'`, `mode='local'` and
-`analysis_enabled=false`. They create no online match or rating event, and they are
-excluded from `/api/stats` and `/api/games`. The dedicated owner-scoped reads are
-`GET /api/personal/local` and `GET /api/personal/local/{game_id}/replay`; trusted
-`all_data` administrators read the same records through
-`GET /api/history/games?category=local` and
-`GET /api/history/local/{game_id}/replay`. Only the creating account may move,
-seek, undo/redo, restart or delete a local game; administrators retain read-only
-access. The default Hall and dashboard projections never mix local games in.
+Registration is off by default and requires a usable sender/SMTP configuration.
+Verification and reset links are single-use and expire; only the newest link works.
+See [user management](user-management.md) for enablement, rates and recovery.
 
-Schema 15 adds private full birth dates and one-time publication exceptions for
-legacy-private profile values. Populated fields submitted under the new policy
-are public, with only integer age derived from a private full date. Existing
-hidden values do not publish during migration or unrelated PATCHes. Requests
-cannot assign legacy flags, transition metadata or privileged fields. Old birth
-years stay private without manufacturing an age. See [profile policy](../game/profile.md).
-Matching-schema restore retains current live publication exceptions and birth
-dates; older-schema restore is refused before replacing live authority.
+## Online and public exposure
 
-Schema 11 adds independent [online match/game/result/gate records](./online-operations.md) and
-the [versioned rating pool](../game/ratings.md).
-Create/join require active, verified accounts, including administrators; an admitted
-seat retains play after verification changes with an active account/current session.
-Online mutations reload the session, role/status and participants inside their
-SQLite write transaction, after middleware checks. Admin privilege cannot take a
-turn or obtain running-game assistance. All online mutations also require matching
-Origin, JSON, CSRF, strict bodies and bounded size. Dedicated projections omit
-account/security metadata and private administrative notes; local-game analysis,
-AI and shared-cursor/export adapters reject online IDs for all roles.
-Timeout controls are persisted, administrator-restricted and audited, with production
-finalization disabled until an approved outage procedure and explicit gate resume.
-Compatible recovery retains live online authority and pauses the gate; incompatible
-online schema rollback is refused before root replacement.
+- Online admission is off by default; enable it only after verifying accounts,
+  clocks, result finalization and quotas.
+- Public Watch Hall discovery is **enabled by default** on the shipped configuration.
+  Set `HNEFATAFL_PUBLIC_ONLINE_ENABLED=false` to disable the whole public namespace.
+- Public reads expose only an allowlisted projection: no private history, email,
+  full birth date, analysis or mutation.
+- Automatic timeout losses/rating updates are enabled by default. Pause finalization
+  only during an incident or restore.
 
-Authenticated online creation is additionally bounded per account: five waiting
-lobbies and ten new matches per rolling fifteen minutes by default, without an
-administrator exemption. Limits serialize with creation and survive cancellation,
-restart and compatible recovery. Quota denials use fixed-size persistent counters
-and sanitized, rate-limited logs; aggregate monitoring requires administrator
-permission and exposes no account/security identifiers. See
-[creation quotas and monitoring](./online-operations.md#creation-quotas-and-monitoring).
+See [online operations](online-operations.md) and
+[public API](../development/api/public.md).
 
-Personal dashboard routes under `/api/personal` are authenticated GET-only `play`
-grants. Account listings/replay require exact ownership, online listings/detail/
-replay require participation (including creator/admitted match opponent), and
-administrators have the same personal scope. Known-game spectator routes and
-legacy administrator Hall access keep their existing behavior. Summary projections
-omit private configuration, security fields and correction notes. Account-keyed UI,
-abort cleanup and session epochs prevent stale account responses entering the next
-account. See the
-[personal API contract](../development/api.md).
+## Browser-local analysis
 
-Progression provides authenticated `play` catalog and own-progress reads
-(`GET /api/portraits/catalog`, `GET /api/personal/achievements`), a `play` unlock
-(`POST /api/portraits/unlock`) and a `profile` selection (`PATCH /api/profile/portrait`).
-These endpoints use the session account. The unlock accepts a catalog ID and checks
-the account's permanent milestone in the same transaction that records its new
-entitlement. Selection checks an existing entitlement. Game, rating and analysis
-transactions award milestones automatically, and schema 21 reconciles historical
-evidence once. Awards and entitlements are append-only and unique. Existing origin,
-CSRF, bounded-body and deployment-freeze protection applies to progression writes.
-Tournament startup reconciliation also respects that freeze. Expected
-deployment-gate contention is deferred to the existing background worker rather
-than opening a second write path or bypassing the gate. The corrected updater also
-refuses known-incompatible `0.41.0` rollback/interrupted-recovery targets before
-service stop, data restore or symlink replacement; it never weakens the gate or
-data-authority checks to force a downgrade. See
-[portraits and achievements](../game/progression.md) and
-[deployment recovery](../installation/updating.md#rollback-and-recovery).
+Optional browser analysis is deployment-controlled and disabled unless configured.
+It adds narrowly scoped CSP sources only when delivery is enabled; disabled
+deployments keep the strict policy. Published models are explicit administrator
+actions and are digest-validated. See
+[browser analysis](../development/browser-analysis.md) and
+[the active roadmap](../development/roadmap/browser-analysis.md).
 
-The Linux updater authenticates the utility generation and systemd unit from the
-verified archive before any application-owned build runs. It locks the validated
-HTTP gate inode, uses descriptor-relative operations for untrusted entries, and
-runs queries against live SQLite as the application account. Snapshot and restore
-work use private copies. Recovery checks release, snapshot and directory
-identities from protected metadata before service startup. See
-[installation, updates and recovery](../installation/updating.md#rollback-and-recovery).
+## Dependency audit
 
-## Coverage and explicit exceptions
+CI runs a moderate-or-higher npm audit. The committed
+[`dependency-audit-exceptions.json`](../../frontend/security/dependency-audit-exceptions.json)
+currently has no active exceptions. The historical withdrawal record is in
+[the security advisory](../development/security-advisory.md). A new exception needs
+review, a repository-hosted approval reference and an expiry; never add a blanket
+ignore list or suppress findings.
 
-The complete [JSON inventory](../API_PERMISSIONS.json) records every API method/path,
-required authentication/permission, possible persistence changes and user-data scope.
-Regression tests compare registered API routes with exact policy declarations;
-an added route without a policy fails the suite and remains denied.
-Run `.venv/bin/python scripts/audit_api.py` to check the generated inventory;
-after reviewing new permissions, regenerate with `--write`. Persistence flags
-conservatively include GET routes that can reserve identity runes or reconcile jobs.
+## Incident boundaries
 
-Login, registration availability, the five declared registration/verification/reset
-POST routes, the three read-only `/api/public/online/*` GET routes, minimal
-database readiness, the login shell and compiled `/assets/`
-files are public. Mutating public routes require same-origin JSON and bounded
-request bodies; signup cannot assign roles or verification and creates no session.
-Token pages require explicit POST confirmation and exclude tokens from URL request
-paths through fragment transport. The build directory is
-the only static root. API schema/interactive docs are disabled. Page requests for
-training/tournaments also require their permissions. Unknown API paths fail closed;
-slash variants and unsupported methods do not grant access. No SSE or WebSocket
-routes currently exist; all WebSocket handshakes are rejected until explicit
-authenticated support is implemented. Health reports only `{"status":"ok"}`.
+- Preserve logs, database/WAL and checkpoints before attempting repair.
+- Do not delete rows to force a retry; use supported recovery/rebuild operations.
+- A failed deployment or rollback is fail-closed; inspect the transaction journal
+  and restore the last compatible release/data.
+- No runtime authentication bypass exists. If access is lost, recover the account
+  database from a verified backup rather than editing an active database manually.
 
-Worker routes use a separate scoped machine credential and existing job leases,
-validated before request parsing and again by the handler. A worker token never
-authenticates gameplay, training management or browser sessions. Enrollment requires
-an administrator; access also checks that enrolling account remains active with
-training permission. Legacy workers without an enrolling account must be re-enrolled.
-Logs/checkpoints remain preserved. Browser logout leaves delegated machine credentials
-valid; revoke a worker separately to stop machine access. Account disablement or
-demotion prevents future worker requests.
-
-## Dependency audit exceptions
-
-`.github/workflows/ci.yml` runs a moderate-or-higher npm audit and the committed
-[`frontend/security/dependency-audit-exceptions.json`](../../frontend/security/dependency-audit-exceptions.json)
-contains no active exceptions. The historical advisory assessment and withdrawal
-record are in [the security advisory](../development/security-advisory.md). A new
-exception requires review, a repository-hosted approval reference and an expiry;
-do not suppress findings or add a blanket ignore list.
-
-## Operational boundaries
-
-Production requires an HTTPS public origin, exact allowed hosts, explicit trusted
-proxies and an initialized administrator. There is no remote auth-off configuration.
-Development uses HTTP cookies on explicit local hosts, retaining login, CSRF,
-ownership and permissions. Do not expose development servers.
-
-Uploads retain bounded extraction, tensor-only loading and contained storage paths.
-Training and inference are computationally expensive; use LXC, systemd and proxy
-limits. Permitted users can consume inference resources; multi-tenant scheduling
-and per-user compute quotas remain future work. SQLite and the OS account are
-trusted; root/data-owner access can change accounts directly. TLS, network
-restriction to the application port, patched dependencies and off-host backups
-remain operator responsibilities. MFA is not implemented. SMTP/provider delivery,
-privacy/retention and operational recovery policy require owner validation before
-enabling signup. These are tested controls, not a claim of immunity.
-
-Browser-local guest play is removed. `/`, `/login`, the registration/verification/
-reset shells, the immutable build assets and the three fixed legal files
-(`/LICENSE.txt`, `/THIRD_PARTY_NOTICES.txt`, `/THIRD_PARTY_LICENSES.txt`) are the
-public documents; every other page, including an anonymous `GET /guest`, goes
-through the authenticated shell and redirects to `/login?next=%2Fguest`. The legal
-files are exact allowlist entries, not a path prefix. All documents and APIs
-share one strict content-security policy; no route receives `wasm-unsafe-eval`.
-
-The Phase 5 history refinement adds read-only `/api/history/games` and
-`/api/history/{category}/{game_id}/replay`. Current trusted `all_data` permits
-administrator-wide server history filters/review. Normal users remain scoped to
-online participation; account categories/name filters are denied and unauthorized
-object lookups return 404. The Great Hall always adds own-account and completed eligible
-scope before its three-row limit, including administrators. List/count/category
-statistics and direct canonical review recheck current sessions in read transactions.
-No history route adds mutation, exports, assistance or public access. See
-[The Great Hall](../game/dashboard.md) and the [API inventory](../API_PERMISSIONS.json).
-
-Signed-out visitors may read online games and completed replays through the
-additive `/api/public/online/*` namespace described in
-[Public online discovery](../game/public-online.md). It is online-only, read-only and
-analysis-free for live games: no single-player or local record, email, account or
-session identifier, private profile field, private audit note or unpublished name
-is exposed, and there is no public join/move/concede/void/analysis route. Unknown
-and live-replay identifiers return a consistent 404; malformed identifiers are
-rejected with 422 before any lookup. The index uses keyset cursors with `limit`
-1–100 and a stricter per-IP limit than authenticated lobby polling. The security
-boundary owns `Cache-Control`: only an anonymous completed read may be shared
-(`public, max-age=60`), while every other `/api/` response, including errors, is
-forced to `no-store` and no handler on a private route can override it. The
-namespace is gated by
-`HNEFATAFL_PUBLIC_ONLINE_ENABLED` (default enabled) without a schema or
-`SCHEMA_VERSION` change.
-
-## Browser-local analysis distribution and execution policy
-
-Browser-local analysis is optional and disabled by default. The deployment owns
-the execution policy: `browser_only` permits local execution only,
-`browser_preferred` permits strictly bounded server fallback, `server_only` keeps
-the historical server path, and `disabled` suppresses optional analysis. There is
-no player execution-mode setting. The legacy
-`HNEFATAFL_BROWSER_ANALYSIS_ENABLED=0` flag is retained for compatibility; an
-explicit `HNEFATAFL_ANALYSIS_MODE` always wins and cannot be reopened by the
-legacy flag.
-
-In `browser_only`/`disabled`, the authenticated analysis endpoints reject requests
-before any cache read, scheduling or evaluation. In `browser_preferred`, direct
-and fallback requests share server-side per-account/global concurrency, request
-rate, queue and computation limits; a client-reported local failure is never
-treated as authorization for unrestricted server work. Coarse administrator
-counters at `/api/analysis/metrics` expose no account identifiers, positions,
-credentials or device fingerprints.
-
-The authorized `analysis-context` endpoints return the same serialized positions
-(including repetition history) only where the existing analysis/replay permission
-already applies. They expose no new game or account data and never compute. Active
-online/league/tournament games remain ineligible; public spectator pages do not
-initialize the runtime or download models. Browser fallback receipts are
-account/game/position/revision-bound, bounded, short-lived and created without
-starting computation; late or duplicate consumption after a terminal transition is
-rejected. Task admission and receipt retirement are atomic with the existing
-analysis service lifecycle. The direct receipt-status and receipt-result endpoints are account-bound,
-do not reveal game/position data to other accounts, and a bounded sequence
-watermark allows abandoned records to reconcile without revisiting their games.
-Result retrieval is read-only and refuses to start or renew computation. Missing or malformed evidence is `unknown`, never `retired`, and never
-initiates a search. Browser results are advisory and cannot
-mutate authoritative results, clocks, ratings or progression.
-
-Enabling browser delivery adds exactly one narrow CSP source,
-`script-src 'self' 'wasm-unsafe-eval'`, plus `worker-src 'self'` for the same-origin
-workers. The disabled policy is unchanged, and there is no broad `unsafe-eval`,
-inline script, blob worker, wildcard or remote runtime origin and no COOP/COEP
-change.
-
-Warm offline execution is allowed only after successful online authorization and
-runtime/model initialization. The client lease is account/runtime/TTL bound and is
-never server-verifiable proof of permission; logout/account change disposes it and
-reconnection requires origin revalidation before further work. Revocation cannot be
-delivered to an already disconnected browser; the bounded TTL, no-new-resource rule
-and documented inability to recall downloaded bytes limit but do not eliminate
-that risk. Cold offline startup and persistent offline authorization remain out of
-scope until Phase 6.
-
-Runtime assets (pinned Pyodide 0.27.7 and ONNX Runtime Web 1.22.0, the engine
-closure, workers, manifests and third-party license texts) are staged under the
-persistent data root outside release directories. They are served from the
-application origin only after full-tree manifest verification: every file's size
-and SHA-256, no unexpected files or symlinks, matching application, encoder,
-driver, search-algorithm and worker protocols, required inventory, declared total
-and independently re-bound pinned upstream digests. The browser also recomputes the
-canonical runtime identity. Each request is resolved against the exact immutable
-`<runtime_id>` snapshot, never the mutable `current` link; a retained identity may
-serve its own verified bytes while present, and pruned/unverifiable identities
-return a controlled 404. A bounded stat-signature digest cache (device, inode, size, mtime and ctime)
-detects same-size replacement without hashing the distribution on every request;
-every unresolved path component is lstat-checked for symlinks and the file is
-verified before and after hashing. Runtime and model bytes are streamed from the
-verified descriptor, so replacement between verification and response opening cannot
-substitute bytes. A stale,
-incompatible, tampered or symlinked runtime is reported unavailable rather than
-executed, so a partially completed deployment or rollback cannot activate an
-incompatible pair. Model artifacts are streamed from an immutable
-content-addressed store with `Cache-Control: no-store`. The trusted storage
-boundary assumes the application/data directory is controlled by the service
-owner; a privileged administrator who can replace the application and its trusted
-manifests is outside the integrity claim.
-
-A registered checkpoint is not a published browser model. Publication requires an
-active `ADMIN` account from the application database and a validated export: the
-canonical `hnefatafl.onnx_artifacts` contract verifies the validation marker,
-manifest, parity report, metadata sidecar and reference-vector digests, the actual
-ONNX graph, architecture, ruleset, board size, IO contract, opset, encoder and
-runtime compatibility, size budget and source-weight fingerprint. Publication is
-atomic and audited (`browser_models/audit.jsonl`), artifacts are immutable and
-content-addressed, replacement is explicit (the previous version becomes
-`superseded`), revocation is explicit and retains history, and deletion of a
-server model never deletes a published copy. Delivery resolves the publication
-record, exact artifact version and verified file identity under one lock; protected
-downloads may bind `?version=<sha256>` and stale versions fail closed. Same-size
-corruption, symlinked/escaping artifacts and integrity-cache mismatches are
-rejected. A download already authorized and started may finish if the publication
-is revoked during streaming; every new request is denied, and revocation cannot
-recall bytes already transferred. An audit/index write failure rolls the index back
-so a failed operation cannot leave a publication without an audit trail. Neither filesystem paths, optimizer
-state, training-job state, replay buffers nor private training metadata are
-exposed. Distributing ONNX weights to a browser necessarily makes them accessible
-to the receiving client; access control restricts distribution but cannot keep
-downloaded weights secret.
-
-All delivery endpoints are authenticated `play` reads under the existing session,
-Origin and cache boundary. Catalog listing never grants download authorization;
-each artifact request re-resolves the currently published record. Unknown,
-revoked, unpublished or unprotected identifiers return 404, and disabled and
-unavailable states do not disclose protected artifacts. These endpoints expose no
-game, replay, position, account or permission data and do not relax any existing
-replay-access rule; ongoing online games gain no analysis assistance, private
-games remain private and browser analysis is advisory only. The server remains
-authoritative over moves, clocks, results, ratings, league progression,
-achievements and tournaments.
-
-The browser layer stores only content-addressed published model artifacts in
-IndexedDB (serialized atomic admissions, byte/entry quotas, same-key replacement
-without unrelated eviction, size/digest re-verification, corruption invalidation
-and degradation when storage is denied). Downloads are explicit, size-bounded,
-digest-verified, cancellable, deduplicated with generation-scoped reservation
-accounting, and never activated on HTTP success alone. Verified bytes are passed
-directly to the validated neural client so inference never performs a second model
-transfer, and an already-healthy matching session is reused without another
-IndexedDB read, re-hash or transfer; current publication authorization is rechecked
-before every activation. Every
-asynchronous operation has explicit ownership and cannot create workers or publish
-state after logout, account switching or disposal. Logout, session expiry or account switching invalidates the
-runtime generation, aborts downloads and searches, clears results and releases
-workers; a delayed completion cannot restore the previous account's state.
-Published models are shared public artifacts and may be retained. Server-side
-revocation stops new protected downloads but cannot delete copies already
-downloaded or copied. The public Phase 5 runtime factory is a per-tab singleton;
-direct instance construction is internal/test-only, and cross-tab aggregate limits
-remain best-effort rather than a shared coordinator. Browser processes do not provide enforceable RAM limits:
-application limits bound downloads, storage, workers, searches and simulations,
-while actual memory use remains estimated/observable only.
-
-Residual limitations are documented in the
-[Phase 4 validation report](../evaluation/browser-analysis/browser-analysis-phase4.md): no offline
-runtime execution (deferred by explicit owner approval to a separate phase; models are offline-verifiable
-but runtime workers load origin URLs and there is no service worker), best-effort
-per-tab cross-tab coordination, no verified GPU execution, no competitive model or
-playing-strength evidence, and no physical-device acceptance.
+Implementation details, token consumption, CSRF internals and permission coverage
+are in [security implementation](../development/security.md).

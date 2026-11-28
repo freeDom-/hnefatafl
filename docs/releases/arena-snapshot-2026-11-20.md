@@ -1,13 +1,16 @@
-# Current Arena completeness and roadmap
+# Arena completeness snapshot (2026-11-20)
+
+> **Historical snapshot:** this is a point-in-time capability review, not the
+> current roadmap. Current remaining work is in the
+> [Arena roadmap](../development/roadmap/arena.md); browser-analysis status is in
+> its [active roadmap](../development/roadmap/browser-analysis.md). Release and
+> deployment gates are in [readiness](readiness.md).
 
 Source snapshot: merged `main`
 `ca1a640fe6b3971cf7f7764083eee19d1598a19a` (2026-11-20, PR #107 merge
-following release 0.41.0), reviewed 2026-11-20. The snapshot includes merged browser-analysis
-Phase 1 (#104) but that research work is not a production analysis executor. The
-later #107 release-note correction changes no implementation status. This is the primary current roadmap. It supplements the
-[original post-PR #84 audit](../development/roadmap/arena.md), whose baseline matrix and
-historical test counts remain unchanged and historical. Source review is not a new
-full-suite test run or a combined release acceptance.
+following release 0.41.0), reviewed 2026-11-20. It records merged browser-analysis
+Phase 1 research, not a production analysis executor. Baseline matrices and test
+counts remain historical. Source review is not a new full-suite or release acceptance.
 
 Provenance for this snapshot: Git history and merge commits in this repository;
 PR states and green check runs verified through the GitHub API on 2026-11-20
@@ -42,7 +45,7 @@ before assigning or duplicating work.
 
 [Release readiness](readiness.md) ·
 [Historical audit](../development/roadmap/arena.md) ·
-[Contracts](../development/arena-contracts.md) ·
+[Contracts](arena-contracts-2026-11-15.md) ·
 [Design system](../development/frontend.md)
 
 ## Status vocabulary

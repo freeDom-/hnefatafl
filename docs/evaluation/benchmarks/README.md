@@ -21,16 +21,19 @@ Historical results keep their original revision, host, model and sample.
 - [Learning metrics and dashboards](training/learning-metrics.md)
 - [Win-streak progression fast path](training/progression-streaks.md)
 - [Completed-trial bookkeeping](training/tuning-bookkeeping.md)
+- [Training evaluation cost](training/evaluation-cost.md)
 
 ## Inference, symmetry and caching
 
 - [D4 training symmetry and exact-input caching](inference/symmetry-and-caching.md)
 - [Optional OpenVINO](inference/openvino.md)
+- [CUDA GPU measurements (RTX 3060)](inference/gpu.md)
 
 ## Browser and backend
 
 - [Backend read workload](browser/backend-read.md)
 - [Frontend feature splitting and initial bundle](browser/frontend-bundle.md)
+- [Tournament collection loading](browser/tournament-loading.md)
 - [Browser-local analysis phases and evidence](../browser-analysis/README.md)
 
 ## Agents
@@ -44,4 +47,4 @@ budget, batch/concurrency, side assignment and game/ply caps are compatible. Do 
 compare CPU and GPU throughput, fixed-depth and fixed-time strength, or smoke and
 competitive models as if they were the same measurement. See
 [methodology](../methodology.md) and
-[performance](../../training/performance.md#benchmark-protocol-and-evidence).
+[performance](../../training/../evaluation/methodology.md).

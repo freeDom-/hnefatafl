@@ -29,7 +29,7 @@ Short timings have visible noise; these are bounded CPU diagnostics, not GPU or
 playing-strength evidence. Unfinished games remain unfinished.
 
 The same engine change measured end-to-end in GPU batched self-play is recorded in
-[GPU measurements on the RTX 3060 host](../../training/performance.md#gpu-measurements-on-the-rtx-3060-host):
+[GPU measurements on the RTX 3060 host](../../training/../evaluation/benchmarks/inference/gpu.md):
 the ratio of medians was 1.232× with matching work hashes, but one of the three
 pairs showed no improvement, so the median paired gain (~1.056×) is the
 conservative reading.
@@ -85,7 +85,7 @@ skip explicitly on this CPU-only host. No GPU speedup or playing-strength gain i
 established by these timings.
 
 The same change measured on an RTX 3060 CUDA host is recorded in
-[GPU measurements on the RTX 3060 host](../../training/performance.md#gpu-measurements-on-the-rtx-3060-host).
+[GPU measurements on the RTX 3060 host](../../training/../evaluation/benchmarks/inference/gpu.md).
 Batched evaluation was 9.70× faster against Shieldbearer and 5.61× faster against
 Champion, but the Champion work hashes differed between the two execution modes,
 so equivalent Champion outcomes and promotion decisions are not established.

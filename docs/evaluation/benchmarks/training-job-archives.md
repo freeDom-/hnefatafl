@@ -6,7 +6,7 @@ Iterative reviews of portable training-job archives. Later reviews supersede ear
 
 ## Portable job archive benchmarks
 
-[Training data](../../training/models.md#moving-data-between-installations)
+[Training data](../../training/models.md#move-data-between-installations)
 
 The benchmark uses real CPU smoke-training checkpoints and synthetic long metric
 histories made by repeating the measured iteration. It does not claim 1,000 real
@@ -130,7 +130,7 @@ performance were not benchmarked. Cross-filesystem correctness is tested.
 
 ## Job archive review benchmarks
 
-[Training data](../../training/models.md#moving-data-between-installations)
+[Training data](../../training/models.md#move-data-between-installations)
 
 These measurements compare the review fixes with PR #58 at
 `c85f3d4dc58af142ed06d56847aeadcebc4f35ae`, using schema-3 TAR.GZ and gzip level 1
@@ -292,7 +292,7 @@ denotes the review fixes. Resource samples use `before` and `after` explicitly.
 
 ## Job archive second-review measurements
 
-[Training data](../../training/models.md#moving-data-between-installations)
+[Training data](../../training/models.md#move-data-between-installations)
 
 These measurements compare the remaining review fixes with PR #58 at
 `9b58c884210456d9d487edc1a8efd4a7f5d0df33`. Both use schema-3 TAR.GZ with gzip
@@ -441,7 +441,7 @@ accounts; no external account or worker infrastructure is required.
 
 ## Job archive final compatibility review
 
-[Training data](../../training/models.md#moving-data-between-installations)
+[Training data](../../training/models.md#move-data-between-installations)
 
 These changes address the final review of `ab1c7e88`: full import responses are
 again the API default; the workshop explicitly requests `?summary=true`; loaded
@@ -562,7 +562,7 @@ local fixtures.
 
 ## Job archive security and identity review
 
-[Training data](../../training/models.md#moving-data-between-installations)
+[Training data](../../training/models.md#move-data-between-installations)
 
 This review compares the credential sanitizer at `6b31d9f` with the streaming
 replacement. Recognized quoted credentials are removed completely, including

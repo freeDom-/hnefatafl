@@ -1,7 +1,7 @@
 # Arena v2 design system
 
 [Documentation index](../../README.md) · [Personalization](../game/personalization.md) ·
-[Arena contracts](./arena-contracts.md)
+[Architecture](./architecture.md)
 
 The four supported UI themes share one information architecture. King’s Table uses
 parchment, pine and gold; Iron & Ash uses charcoal stone, forged metal and restrained
@@ -31,7 +31,7 @@ four standing cards, bounded game previews, compact leaderboard and recent recor
 The primary fixture composition fits at 1920×1080/Default and 3840×2160/Large.
 Genuinely longer queues and records retain normal vertical scrolling. Grid tracks,
 fluid board sizing and shared spacing tokens preserve hierarchy without clipping.
-See [scale defaults and overrides](../game/personalization.md#automatic-and-explicit-scale).
+See [scale defaults and overrides](../game/personalization.md#appearance).
 
 ## Materials and safe assets
 
@@ -72,7 +72,7 @@ geometry, square boards, persistent navigation, no horizontal overflow, primary
 composition fit, automatic scale, explicit overrides and genuine 200% Chromium zoom.
 The zoom extension is test-only and is never shipped with the application.
 
-See [visual acceptance record](./frontend.md).
+See [browser-analysis Phase 5 visual evidence](../evaluation/browser-analysis/browser-analysis-phase5.md) for current analysis captures and the theme/geometry suites in `frontend/tests/arena-final.spec.ts`.
 
 ## Original artwork prompts
 
@@ -104,7 +104,7 @@ grayscale while the request is pending. A new claim reveals the existing gallery
 image through feathered, irregular masks and adds a brief gold glow to the existing
 frame. Portrait actions share a reserved area to keep artwork and card geometry
 stable. Reduced motion displays the standard colored image as soon as the claim
-is confirmed. See [progression](../game/progression.md#hall-of-renown-and-player-artwork).
+is confirmed. See [progression](../game/progression.md#portraits).
 
 Achievement cards sit inside the single Deeds of Valor `arena-surface` and reuse its
 shared border, spacing and typography tokens, deliberately without a second

@@ -1,258 +1,89 @@
-# Records, collections and appearance
+# Records, language and appearance
 
-[Documentation index](../../README.md) · [Gameplay](./gameplay.md) · [Model and job data](../training/models.md)
+[Game index](README.md) · [Profile](profile.md) · [Interface guide](interface/README.md) · [UI guidelines](../development/ui-guidelines.md)
 
-## Human profiles and history
+## Recorded games and AI configurations
 
-New human seats are bound to the authenticated account, with its name shown in a
-compact card. Normal accounts create Human vs AI; administrators can also create
-AI vs AI. Pass-and-play, local-player selection/editing and local-player CRUD APIs
-are removed. Stored player IDs/tombstones remain compatibility data for historical
-game reads, statistics and runes; no historical data is deleted.
+**The Great Hall** shows a short recent-record strip; **Hall of records** provides
+filters, totals and read-only review. Your own account history is private; public
+spectator history contains only eligible online games.
 
-## AI configurations in the Hall of records
-
-[The Great Hall and Hall of records](./dashboard.md) now share compact read-only recorded-game rows.
-Normal users browse participating online records; administrators can filter all
-server-recorded online and account-single-player games by category, player name,
-ruleset, lifecycle and result. Counts and category totals match the server filter.
-Selected validated review is independent of the current page/filter. Historical
-screenshots of the earlier statistics/Local players layout do not describe this UI.
-
-The existing account statistics API continues to group normalized effective AI
-configurations independently of seed. Different algorithms/budgets/models remain
-separate identities; individual games retain their actual seed and configuration.
-Account gameplay still supports its existing analytics/settings; read-only Hall
-review grants no analysis, export or mutation controls. Model cleanup below retains
-its existing explicit confirmation and authoritative reference checks.
+Statistics group equivalent AI configurations independently of their random seed.
+Different algorithms, budgets or models remain separate identities. A recorded game
+keeps its actual seed and configuration even if the same agent is grouped elsewhere.
 
 ## Models and suggested names
 
-In the **AI Workshop**, use the name-suggestion button beside the model name to generate
-a Viking-inspired name such as “Astrid Ravenwise”. Suggestions avoid names already
-in the model collection and the current suggestion. You can always edit the name.
+In the **AI Workshop**, the suggestion button beside the model name offers a
+Viking-inspired name. Suggestions avoid existing model names and the current
+suggestion; you can always type your own. Renaming a model keeps its ID and rune and
+does not rewrite historical game labels.
 
-Each model card supports renaming, loading recorded training settings, export and
-deletion. Renaming keeps its model ID and rune; historical reports retain their
-recorded names. Model deletion requires confirmation,
-removes the registered inference copy and its model entry, and refreshes the available
-AI choices. Original training checkpoints remain for resumption or re-import.
-Completed game histories and historical model labels remain.
+Model cards support renaming, loading recorded training settings, export and deletion
+under the restrictions in [training models](../training/models.md). Deleting a
+registered model does not delete its source training job; deleting training data
+does not delete a playable model copy.
 
-Training data has a separate delete action on inactive jobs. It removes that
-job's checkpoints and logs, preserving registered model copies and saved games.
-See [training management](../training/models.md#managing-models-and-retained-training-data)
-for resumption consequences and shared-study protections.
+## New-game choices and seeds
 
-The delete dialog checks the server's saved records, including unfinished games
-from other browser sessions or games replaced by **New game**. The browser's
-current-game pointer represents only one of those records. If unfinished games
-still use the model, the dialog lists them and offers an unchecked **Discard
-unfinished games and delete model** option. Choosing it removes those unfinished
-games without a result or retained history. Completed games remain, including
-completed games whose replay cursor is at an earlier position. Changed references
-require reviewing the dialog again; deleting a model never silently removes new
-references. Running tournaments must be stopped before their model can be deleted.
+Every new account game receives a fresh server-generated seed. **Restart** is
+available only for unfinished games under the current policy and uses a fresh seed.
+Existing games keep their recorded moves and original seed semantics.
 
-Model cards show **Training seed** from the saved training configuration. This is
-different from an evaluation seed or a game seed. Older imports without the
-training seed say **Not recorded**.
+Single-player setup offers **Shield bearer**, **Shield maiden**, **Jarl** and
+**Seer**. Administrators can additionally configure custom opponents and AI-vs-AI.
+The dialog does not present a benchmarked strength ranking. Trained-model selection
+and full search settings live in authorized advisor, training and tournament flows.
 
-## New-game opponents and seeds
+Successful setup preferences are remembered per browser: battlefield, mode, human
+side and preset. Custom configurations, model IDs and fixed seeds are not saved as
+browser creation preferences.
 
-Every new account game receives a server-generated random base seed. Restart is
-available for unfinished games created under the current policy, rechecks identity
-and role, resolves the preset again and uses a fresh seed. Historical setups remain
-readable/playable but cannot be cloned through Restart. Recorded moves remain the
-replay authority; old seed semantics are retained when reading existing games.
+## Identity runes
 
-Account setup offers only Shield bearer, Shield maiden, Jarl and Seer, with friendly
-search-style explanations and time/depth/iteration limits. There is no benchmarked
-strength ranking in this dialog. Trained-model selection and full search settings
-remain in separate authorized advisor/training/tournament workflows; the shared
-profile catalog still includes neural models. Those workflows can retain their
-existing evidence-based model recommendation, without changing account setup.
+Accounts and models have persistent presentation runes. Names can repeat; runes
+distinguish identities across lists, games, advisors, analyses and records. A model
+keeps its rune across budgets and sides. Renaming changes its label but not its rune.
+AI agents use their normalized search configuration, excluding game seed, so
+equivalent agents share a rune.
 
-Only successful permitted setup preferences are saved at
-`hnefatafl-new-game-options` (version 2): battlefield, mode, human side and preset IDs.
-Older preferences contribute only this allowlisted subset; saved identities,
-models, custom settings and fixed seeds cannot restore removed creation options.
-Cancel/failure does not replace a successful preference, and unavailable browser
-storage does not prevent creation. Stored preferences stay account-scoped.
+Runes are presentation metadata only. They never affect rules, model weights,
+search identity, seed grouping or statistics. Earlier local-player tombstones retain
+their reserved runes for historical records, but local-player creation is no longer
+supported. Back up the complete application data directory to preserve assignments.
 
-## Persistent runes and tournament names
+## Move advisor
 
-Accounts and models receive persistent unique runes; historical local-player IDs
-retain their earlier assignments. A model keeps the same rune
-in dropdowns, its workshop card, either game side, advisor, analysis and records.
-Retained human-profile tombstones keep their runes; no local-player CRUD is supported. Assignments are never recycled;
-after the 24 single Elder Futhark runes, unique combinations extend the catalog.
-See [IDENTITIES.md](./personalization.md) for identity and migration details.
-
-Tournament participants use their selected model or AI profile names; there is
-no separate editable participant alias. Tournament titles remain editable northern
-mythology suggestions. The same **⚄** dice control rerolls model and tournament
-name suggestions. Seats show the underlying model/agent rune; repeated models are
-distinguished by seat number and settings. Older seat-rune reservations remain
-stored but are not a second current participant identity.
-
-The shared header groups the language selector and username menu at the top right
-on every page, including play. **My Profile** opens account management and the
-existing appearance controls. On narrow screens the trigger uses the account icon;
-opening it shows the full username above the Profile and Logout actions. The
-language selector stays directly beside it, and navigation uses its existing
-horizontally scrollable row. Shared page labels remain available to screen readers
-and programmatic focus; the profile also has a visible **My Profile** heading.
-Section headings, dialog titles, statistics labels, form help and operational
-messages remain visible.
-
-Shared typography, buttons, panels, dialogs, tabs, form grids and accessibility
-utilities live in [ui.css](../../frontend/src/ui.css); [siteHeader.css](../../frontend/src/siteHeader.css)
-owns responsive site navigation. Feature styles use the same type tokens rather
-than assigning their own heading/control sizes. [PageHeading](../../frontend/src/PageHeading.tsx)
-provides the shared accessible page label.
-
-Current themed surfaces and mobile layouts are shown in the
-[interface guide](interface/README.md).
-
-## Agent opinions and move advice
-
-Choose **Analytics → Move advisor** below the game's move history to highlight
-an agent's best searched legal move. **None** is the default, with a 5-second
-maximum search time. The settings are also available during history replay.
-The advisor updates in the background without blocking either player. Playing
-AI estimates reuse actual move searches; other opinions run in the background.
-Selecting a move advisor calculates and displays the best-move hint together
-with its winning-chance estimate; **None** closes the analysis section. Saved
-snapshots appear during replay; missing older evaluations are explicit. See [ANALYSIS.md](./replay-and-analysis.md) for the value sources,
-expected-score interpretation, draw handling and model-reference protection.
+**Analytics → Move advisor** selects an optional advisor; **None** is the default.
+The advisor suggests a legal move without executing it and shows an expected-score
+estimate. It runs in the background without blocking either player. Saved estimates
+appear in replay; missing older evaluations are shown as absent. See
+[replay and analysis](replay-and-analysis.md).
 
 ## Language
 
-Use the header language selector beside the username menu to switch between English and German without
-leaving the current game. The browser stores the choice under `hnefatafl-language`;
-a fresh visit follows German browser language or otherwise English. Rules, controls,
-accessible labels, number/date formatting and workshop/tournament text follow the
-selection. User names and saved tournament/model names keep their original text.
+The header language selector switches between English and German. The choice is
+remembered in the browser. Dates, numbers and relative times use the selected locale;
+rules and help text fall back to English when a translation is missing.
 
-Battlefields are consistently ordered by board size: Brandubh 7×7, Tablut 9×9,
-Copenhagen 11×11, in new games, records and training.
+## Appearance
 
-## Color, tokens and boards
+Choose independently:
 
-Open the username menu → **My Profile** → **Appearance**. The appearance settings are independent:
+- **UI theme:** The King's Table, Iron Ash, Saga Hall or Classic Table.
+- **Board:** Golden oak, Old walnut or Fjord slate.
+- **Tokens:** Classic stones, Viking figures or Carved wood.
+- **Interface scale:** Compact, Default or Large, or follow the display scale.
 
-| Setting | Choices |
-| --- | --- |
-| UI theme | The King’s Table, Iron & Ash, Saga Hall, Classic Table |
-| Token theme | Classic stones, Viking figures, Carved wood |
-| Board theme | Golden oak, Old walnut, Fjord slate |
-| Interface scale | Compact, Default, Large |
+Preferences are saved in this browser and survive reload. Theme, board and token
+choices do not affect rules or gameplay. Shared components and theme variables are
+documented in the [frontend guide](../development/frontend.md); extension details are
+developer documentation, not player settings.
 
-**Interface scale** changes both spacing and text size. Compact fits more on screen;
-Large provides more room and larger text. Responsive spacing adjusts with the
-viewport while retaining the selected scale. Play screens reserve more space for
-the board, with the page heading retained for screen readers. On desktop, tall
-side panels scroll within the play area so the board and footer stay in view.
+## Privacy and device boundaries
 
-See the current [design system and visual acceptance](../development/frontend.md).
-
-The Viking set renders shield bearers and a crowned king. The carved set uses
-weathered wood grain and carved markings. Its king uses the selected **Fjord Diadem**:
-a low three-peak northern circlet with an interlaced band, rendered as scalable SVG.
-This motif applies only to Carved wood; the other token sets retain their king art.
-See the [three king concepts and selected design](../development/decisions/king-token-design.md).
-Side and king distinctions remain visible
-in every theme. Legal destinations, move highlights and keyboard controls keep the
-same behavior. Changing appearance does not change game state or AI parameters.
-
-Preferences remain browser-local under `hnefatafl-appearance`, independently of accounts,
-progression, game state and language. The four UI themes own their palettes;
-there is no separate color-mode or Classic look control. King’s Table is the default.
-Token and board settings remain independent.
-
-### Existing preference migration
-
-Valid named UI themes take precedence over obsolete color modes. With no named
-theme, or with the former `legacy` (Classic look) selection, migration maps:
-
-| Old color mode | Supported theme |
-| --- | --- |
-| Light | Classic Table |
-| Dark | Iron & Ash |
-| Wood | Saga Hall |
-| Follow device / missing / invalid | The King’s Table |
-
-The mapping is deterministic and never depends on OS dark mode. An unknown named
-theme falls back to King’s Table. Valid token, board and explicitly saved scale
-values are preserved. React persists a normalized version-2 object without the
-obsolete mode field; parsing that object again produces the same result.
-The external synchronous initializer uses the same theme/migration catalog before
-React mounts. Storage failure retains usable visit-only settings.
-
-### Automatic and explicit scale
-
-When scale is absent, a CSS viewport at least 3000px wide and 1600px tall defaults
-to Large; smaller viewports use Default. A full 1920×1080 viewport therefore uses
-Default and a full 3840×2160 viewport uses Large. Browser zoom and OS scaling reduce
-the available CSS viewport: physical screen dimensions and pixel ratio are not used.
-Automatic scale follows viewport changes. Choosing Compact, Default or Large stores
-an explicit override, which survives resizing, zoom, reload and theme changes.
-Older valid saved scale values are treated as explicit, including Default.
-
-## Adding another theme
-
-`frontend/src/appearanceConfig.ts` defines the typed catalogs and allowed preferences.
-Add a token catalog entry and a corresponding renderer in `frontend/src/Tokens.tsx`,
-then supply its visual treatment in `appearance.css`. Token previews use the same
-renderer as the board, so one addition supplies both. Preserve `A`, `D` and `K`
-distinctions and leave the board's accessible coordinate/piece labels intact.
-
-For another board, add an entry to `BOARD_THEMES` with the existing palette keys:
-light/dark squares, special-square variants, frame/rim/inner/edge, runes, selected
-square/ring, last move and legal destination. The provider translates these to
-`--board-*` CSS variables. Board and token catalogs are independent of each other
-and of the rulesets. Test new combinations in all four UI themes and at phone sizes.
-
-## Persistent identity runes
-
-Each human player and model has a persistent presentation rune. API player/model
-lists, game participants, move advisors, recorded analyses and statistics expose
-the same `rune` for that identity. Names can repeat; runes distinguish separate
-player UUIDs and model IDs. A model keeps its rune across different search budgets
-and uses on either side. Ordinary non-model AI agents use their normalized search
-configuration, excluding game seed, so equivalent agents have the same rune.
-An explicit nested `search` object is part of that normalized configuration:
-a record that names the default optimizations explicitly is intentionally a
-different identity from the same algorithm without the object. The two behave
-identically, but keeping them separate means a historical record is never
-silently merged with a newer explicit-default record, and their runes and
-statistics stay stable. New explicit configurations are preserved rather than
-collapsed into the implicit shape. The resolved `heuristic` is part of the same
-normalized configuration: an alpha-beta or MCTS agent explicitly evaluated with
-Shield bearer stays distinct from the default Shield maiden one.
-
-Tournament participants display their underlying model/agent rune consistently
-with games and the model collection. Reusing the same model also reuses its rune;
-opponent numbers and search parameters distinguish seats with different budgets.
-Earlier records can retain reserved seat runes in storage, but the response/view
-uses the underlying agent identity. Those earlier assignments are not recycled.
-Renaming a model changes its catalog label without changing its rune.
-
-SQLite schema 5 adds `entity_runes`, an atomic mapping from stable identity keys
-to a globally unique ordinal/rune. The first 24 identities use single Elder
-Futhark runes. Further identities receive unique combinations in bijective base
-24 (`ᚠᚠ`, `ᚠᚢ`, …); there is no 24-entity limit and no hash-based glyph collision.
-Assignments are local to the application data directory, survive restarts and
-are never recycled when a player, model, game or tournament is deleted.
-
-Existing player tombstones reserve their identities. Historical games,
-tournaments and analysis reports receive missing rune fields in API responses,
-without rewriting their stored gameplay JSON or original opinion snapshots.
-Models are decorated at the API/catalog boundary; checkpoint and model-registry
-formats remain unchanged. Importing the same model ID into the same database
-recovers its rune; a different installation assigns its own local catalog runes.
-
-Rune assignment is presentation metadata. It never affects rules, model weights,
-search identity, seed grouping, move versions or statistics totals. Restoring a
-backup must include the complete SQLite database to preserve rune assignments.
+Games, ratings, achievements and tournament records are server-owned. Browser storage
+holds preferences, the last play route and optional retained creation requests; it is
+not a copy of your saved games. Logging out or switching accounts clears account-bound
+cached state. See [profile](profile.md) for public-field privacy and
+[security](../administration/security.md) for account/session protections.
